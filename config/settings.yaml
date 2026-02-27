@@ -1,0 +1,18 @@
+# Project Phoenix - Global Settings
+
+brain:
+  model: claude-opus-4-6
+  max_tokens: 4096
+  temperature: 0.2  # Low for deterministic fixes
+
+orchestrator:
+  max_fix_attempts: 3
+  retry_on_validation_fail: true
+
+validation:
+  use_docker: false  # POC: use local ng test. Set true for sandbox.
+  docker_image: node:20  # For ng test/lint
+
+paths:
+  work_dir: ./workspace  # Cloned repos land here
+  cache_repos: true     # Reuse clone if branch exists

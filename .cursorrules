@@ -1,0 +1,25 @@
+# Project Phoenix - Cursor Rules
+
+## Project Context
+Autonomous AI Agent for Shiprocket Frontend. Self-healing: fix production errors, reduce tech debt, raise PRs.
+7 repos: legacy AngularJS to modern Angular 17+.
+
+## Coding Standards (Phoenix Agent)
+- Python 3.11+ with type hints
+- Use TypedDict for state; keep nodes pure (return dict updates)
+- Config in YAML (.yaml), secrets in .env
+- Brain: Opus 4.6 (claude-opus-4-6)
+
+## Architecture
+- LangGraph nodes in src/orchestrator/nodes/
+- One concern per node; shared state via PhoenixState
+- Services (repo, github, validator) in src/services/
+- Analyzer in src/analyzer/ for repo diagnostics
+- No business logic in main.py; only CLI and invoke
+
+## Shiprocket Angular Standards (apply when editing target repos)
+- Always use SCSS for styles (not CSS, Less)
+- Follow Clean Architecture: feature modules, lazy loading, shared module
+- Use Signals for state in Angular 17+
+- Migrate legacy AngularJS patterns to modern Angular where feasible
+- ng test + ng lint must pass before PR

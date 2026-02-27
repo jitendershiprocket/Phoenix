@@ -1,0 +1,32 @@
+# Project Phoenix - Repository Configuration
+# 7 Shiprocket Frontend Repos — Replace URLs with actual GitHub org/repo paths.
+# For private repos: set GITHUB_TOKEN in .env
+
+repos:
+  # POC / Demo
+  - name: demo-app
+    url: https://github.com/jitendershiprocket/demo-app
+    default_branch: main
+
+  # Production repos (uncomment and add real URLs)
+  # - name: shiprocket-web
+  #   url: https://github.com/Shiprocket/shiprocket-web
+  #   default_branch: main
+  # - name: dashboard-mfe
+  #   url: https://github.com/Shiprocket/dashboard-mfe
+  #   default_branch: main
+  # - name: plans-mfe
+  #   url: https://github.com/Shiprocket/plans-mfe
+  #   default_branch: main
+  # - name: orders-mfe
+  #   url: https://github.com/Shiprocket/orders-mfe
+  #   default_branch: main
+  # - name: homepage-mfe
+  #   url: https://github.com/Shiprocket/homepage-mfe
+  #   default_branch: main
+  # - name: domestic-dashboard-mfe
+  #   url: https://github.com/Shiprocket/domestic-dashboard-microfrontend
+  #   default_branch: main
+  # - name: sr-support-admin
+  #   url: https://github.com/Shiprocket/sr_support_admin
+  #   default_branch: main
