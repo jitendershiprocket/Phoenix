@@ -32,7 +32,10 @@ def clone_node(state: PhoenixState) -> dict:
 
     settings = _load_settings()
     paths = settings.get("paths", {})
-    work_dir = Path(paths.get("work_dir", "workspace"))
+    work_dir_raw = paths.get("work_dir", "workspace")
+    # Resolve relative to phoenix root (not cwd) - always use phoenix/workspace
+    phoenix_root = Path(__file__).resolve().parents[3]
+    work_dir = (phoenix_root / work_dir_raw).resolve() if not Path(work_dir_raw).is_absolute() else Path(work_dir_raw)
     cache_repos = paths.get("cache_repos", True)
 
     # Fix branch name: unique per run (timestamp) + error hash
