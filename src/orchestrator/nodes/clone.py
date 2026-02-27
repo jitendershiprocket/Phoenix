@@ -40,7 +40,7 @@ def clone_node(state: PhoenixState) -> dict:
 
     # Fix branch name: unique per run (timestamp) + error hash
     ts = int(time.time())
-    err_hash = abs(hash(error_summary + repo_url)) % 10000
+    err_hash = abs(hash((error_summary or "") + repo_url)) % 10000
     fix_branch = f"phoenix/fix-{err_hash}-{ts}"
 
     manager = RepoManager(work_dir=work_dir, cache_repos=cache_repos)

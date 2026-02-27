@@ -12,7 +12,14 @@ orchestrator:
 validation:
   use_docker: false  # POC: use local ng test. Set true for sandbox.
   docker_image: node:20  # For ng test/lint
+  node_version: "18"  # nvm use 18 before ng test/lint (avoids odd-version Node warnings)
 
 paths:
   work_dir: ./workspace  # Cloned repos land here
   cache_repos: true     # Reuse clone if branch exists
+
+# Sentry → Repo mapping (--from-sentry)
+sentry:
+  org: ""           # e.g. my-org (from .env: SENTRY_ORG)
+  project: ""       # e.g. demo-app (from .env: SENTRY_PROJECT)
+  repo_url: ""      # GitHub repo for this Sentry project (from .env or repos.yaml)

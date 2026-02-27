@@ -19,9 +19,18 @@ cp .env.example .env        # Add ANTHROPIC_API_KEY, GITHUB_TOKEN
 ```
 
 ```bash
+# Manual mode
 python -m src.main --repo https://github.com/jitendershiprocket/demo-app \
-  --error "TypeError: Cannot read properties of undefined (reading 'id') at UserService.getUserId"
+  --error "TypeError: Cannot read properties of undefined (reading 'id')"
+
+# From Sentry: fetch latest bug automatically
+python -m src.main --from-sentry
 ```
+
+**Sentry mode** requires in `.env`:
+- `SENTRY_AUTH_TOKEN` - from sentry.io → Settings → Auth Tokens
+- `SENTRY_ORG` - org slug (from Sentry URL)
+- `SENTRY_PROJECT` - project slug (e.g. demo-app)
 
 ### Repository Analyzer (Diagnostic Module)
 

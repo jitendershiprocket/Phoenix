@@ -35,8 +35,9 @@ def _resolve_file_path(repo_path: str, file_path: str, stack_trace: str) -> Path
             if p.exists():
                 return p
 
-    # 3. Heuristic: UserService -> user.service.ts
-    if "UserService" in (stack_trace or ""):
+    # 3. Heuristic: UserService / getUserEmail / getUserId -> user.service.ts
+    trace = (stack_trace or "").lower()
+    if "userservice" in trace or "getuseremail" in trace or "getuserid" in trace:
         for p in repo.rglob("user.service.ts"):
             return p
 
