@@ -1,4 +1,5 @@
-# Project Phoenix - Global Settings
+# Project Phoenix - Global Settings (no project-specific values)
+# Repo mapping: config/repos.yaml. Env: .env (SENTRY_ORG, SENTRY_PROJECT, GITHUB_TOKEN)
 
 brain:
   model: claude-opus-4-6
@@ -18,8 +19,4 @@ paths:
   work_dir: ./workspace  # Cloned repos land here
   cache_repos: true     # Reuse clone if branch exists
 
-# Sentry → Repo mapping (--from-sentry)
-sentry:
-  org: ""           # e.g. my-org (from .env: SENTRY_ORG)
-  project: ""       # e.g. demo-app (from .env: SENTRY_PROJECT)
-  repo_url: ""      # GitHub repo for this Sentry project (from .env or repos.yaml)
+# Sentry: org + project from .env. Repo URL from repos.yaml (name must match SENTRY_PROJECT)

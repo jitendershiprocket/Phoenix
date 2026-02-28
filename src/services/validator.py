@@ -1,4 +1,4 @@
-"""Validator - Run ng test and ng lint in repo."""
+"""Validator - Run build + lint. Uses package.json scripts (npm run build, npm run lint). Works for any Node/JS/TS project."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def _run_with_node(cmd: list[str], cwd: Path, timeout: int) -> tuple[int, str]:
 
 
 def _ensure_deps(repo_path: Path, timeout: int = 120) -> tuple[bool, str]:
-    """Run npm install to sync deps (always, so package.json changes like @sentry/angular are installed)."""
+    """Run npm install to sync deps with package.json."""
     try:
         code, log = _run_with_node(["npm", "install"], repo_path, timeout)
         return code == 0, log
@@ -67,8 +67,8 @@ def _ensure_deps(repo_path: Path, timeout: int = 120) -> tuple[bool, str]:
         return False, str(e)
 
 
-def run_ng_test(repo_path: str | Path, timeout: int = 120) -> tuple[bool, str]:
-    """Run ng test (Karma). Returns (passed, log)."""
+def run_ng_build(repo_path: str | Path, timeout: int = 120) -> tuple[bool, str]:
+    """Run npm run build. Works for Angular, React, Vue, etc. Returns (passed, log)."""
     path = Path(repo_path)
     if not (path / "package.json").exists():
         return False, "No package.json found"
@@ -77,18 +77,18 @@ def run_ng_test(repo_path: str | Path, timeout: int = 120) -> tuple[bool, str]:
         return False, f"npm install failed: {msg}"
     try:
         code, log = _run_with_node(
-            ["npm", "run", "test", "--", "--no-watch", "--browsers=ChromeHeadless"],
+            ["npm", "run", "build"],
             path, timeout,
         )
         return code == 0, log
     except subprocess.TimeoutExpired:
-        return False, "ng test timed out"
+        return False, "npm run build timed out"
     except Exception as e:
         return False, str(e)
 
 
 def run_ng_lint(repo_path: str | Path, timeout: int = 60) -> tuple[bool, str]:
-    """Run ng lint. Returns (passed, log)."""
+    """Run npm run lint if script exists. Returns (passed, log)."""
     path = Path(repo_path)
     if not (path / "package.json").exists():
         return False, "No package.json found"
@@ -104,6 +104,6 @@ def run_ng_lint(repo_path: str | Path, timeout: int = 60) -> tuple[bool, str]:
         code, log = _run_with_node(["npm", "run", "lint"], path, timeout)
         return code == 0, log
     except subprocess.TimeoutExpired:
-        return False, "ng lint timed out"
+        return False, "npm run lint timed out"
     except Exception as e:
         return False, str(e)

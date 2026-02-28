@@ -41,12 +41,16 @@ def commit_and_push(
             cw.set_value("user", "name", "Project Phoenix")
             cw.set_value("user", "email", "phoenix@shiprocket.dev")
 
-        # Add all changes, commit
+        # Add all changes, check we have something to commit
         repo.git.add(".")
+        staged = repo.git.diff("--cached", "--name-only")
+        if not staged.strip():
+            return False, "No changes to commit (fix may already be in main, or file resolution failed)"
         try:
             repo.index.commit(commit_message)
         except Exception as e:
-            if "nothing to commit" in str(e).lower():
+            err_lower = str(e).lower()
+            if "nothing to commit" in err_lower or "no changes" in err_lower:
                 return False, "No changes to commit"
             raise
 

@@ -32,7 +32,11 @@ def _load_config() -> dict:
 
 
 def _get_repo_url_for_sentry(project_slug: str) -> str:
-    """Get repo URL from repos.yaml by matching project name, or first repo."""
+    """Get repo URL: SENTRY_REPO_URL env, or repos.yaml (name matches SENTRY_PROJECT)."""
+    import os
+    env_url = os.getenv("SENTRY_REPO_URL")
+    if env_url:
+        return env_url
     repos_path = _phoenix_root / "config" / "repos.yaml"
     if repos_path.exists():
         with open(repos_path) as f:
@@ -78,7 +82,7 @@ def main():
 
         repo_url = _get_repo_url_for_sentry(project)
         if not repo_url:
-            print("Error: No repo URL for Sentry project. Add to config/repos.yaml")
+            print("Error: Set SENTRY_REPO_URL in .env or add project to config/repos.yaml")
             return
 
         # Show bug details

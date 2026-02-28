@@ -35,7 +35,7 @@ def _build_rca_body(state: PhoenixState) -> str:
         f"- Node: {node_ver}" if node_ver else "",
         "",
         "### Validation",
-        "- ✅ ng test passed",
+        "- ✅ ng build passed",
         "- ✅ ng lint passed",
         "",
         "---",
@@ -54,6 +54,9 @@ def pr_node(state: PhoenixState) -> dict:
 
     if not repo_path or not fix_branch or not repo_url:
         return {"status": "failed", "pr_url": None, "validation_log": "Missing repo_path, fix_branch, or repo_url"}
+
+    if not state.get("fix_applied", False):
+        return {"status": "failed", "pr_url": None, "validation_log": "No fix was applied (file resolution failed or fix skipped)"}
 
     token = os.getenv("GITHUB_TOKEN")
     if not token:

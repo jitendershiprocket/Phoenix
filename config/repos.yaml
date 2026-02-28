@@ -1,16 +1,16 @@
-# Project Phoenix - Repository Configuration
-# 7 Shiprocket Frontend Repos — Replace URLs with actual GitHub org/repo paths.
-# For private repos: set GITHUB_TOKEN in .env
+# Project Phoenix - Sentry → Repo Mapping
+# REQUIRED for --from-sentry: SENTRY_PROJECT (in .env) must match a repo "name" below.
+# Phoenix uses ONLY this mapping — no hardcoded project references.
+# Add your prod Sentry project + GitHub repo here.
 
 repos:
-  # POC / Demo
   - name: demo-app
     url: https://github.com/jitendershiprocket/demo-app
     default_branch: main
 
-  # Production repos (uncomment and add real URLs)
-  # - name: shiprocket-web
-  #   url: https://github.com/Shiprocket/shiprocket-web
+  # Add prod mapping, e.g.:
+  # - name: your-sentry-project-slug
+  #   url: https://github.com/your-org/your-repo
   #   default_branch: main
   # - name: dashboard-mfe
   #   url: https://github.com/Shiprocket/dashboard-mfe
@@ -23,10 +23,4 @@ repos:
   #   default_branch: main
   # - name: homepage-mfe
   #   url: https://github.com/Shiprocket/homepage-mfe
-  #   default_branch: main
-  # - name: domestic-dashboard-mfe
-  #   url: https://github.com/Shiprocket/domestic-dashboard-microfrontend
-  #   default_branch: main
-  # - name: sr-support-admin
-  #   url: https://github.com/Shiprocket/sr_support_admin
   #   default_branch: main

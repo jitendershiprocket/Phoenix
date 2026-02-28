@@ -10,43 +10,91 @@ from src.brain.prompts import FIX_SYSTEM_PROMPT, FIX_USER_PROMPT_TEMPLATE
 from src.orchestrator.state import PhoenixState
 
 
-def _resolve_file_path(repo_path: str, file_path: str, stack_trace: str) -> Path | None:
+def _resolve_file_path(
+    repo_path: str, file_path: str, stack_trace: str, error_summary: str = ""
+) -> Path | None:
     """Resolve full file path. Uses file_path, else parses stack_trace, else searches repo."""
     repo = Path(repo_path)
     if not repo.exists():
         return None
 
-    # 1. Direct path from state
+    # 1. Direct path from state (Sentry or manual)
     if file_path:
-        candidate = repo / file_path.lstrip("/")
+        path_clean = file_path.lstrip("/").split("?")[0]
+        candidate = repo / path_clean
         if candidate.exists():
             return candidate
-        # Try src/ prefix (Angular structure)
-        for prefix in ("src/", "src/app/"):
-            candidate = repo / prefix / file_path.lstrip("/")
-            if candidate.exists():
-                return candidate
-
-    # 2. Parse from stack trace: "user.service.ts:27" or "src/app/services/user.service.ts:27"
-    match = re.search(r"[\w/.-]+\.(?:ts|tsx|js)(?=:\d|\)|$)", stack_trace or "")
-    if match:
-        rel = match.group(0).strip()
-        for p in [repo / rel, repo / "src" / rel, repo / "src/app" / rel]:
-            if p.exists():
+        # Search repo for filename (works for any project structure)
+        fname = Path(path_clean).name
+        for p in repo.rglob(fname):
+            if "node_modules" not in str(p) and "dist" not in str(p):
                 return p
 
-    # 3. Heuristic: UserService / getUserEmail / getUserId -> user.service.ts
-    trace = (stack_trace or "").lower()
-    if "userservice" in trace or "getuseremail" in trace or "getuserid" in trace:
-        for p in repo.rglob("user.service.ts"):
-            return p
+    # 2. Parse filename from stack trace and search repo (no fixed paths)
+    match = re.search(r"[\w/.-]+\.(?:ts|tsx|js|jsx|py|java)(?=:\d|\)|$)", stack_trace or "")
+    if match:
+        fname = Path(match.group(0).strip()).name
+        for p in repo.rglob(fname):
+            if "node_modules" not in str(p) and "dist" not in str(p):
+                return p
+
+    # 3. Generic: extract class/method from culprit/stack, search repo by content
+    # No hardcoded filenames — works for any repo
+    culprit_stack = f"{stack_trace or ''} {file_path or ''}".strip()
+    # Culprit pattern: "Service.method" or "JSON.parse"
+    culprit_match = re.search(r"([A-Za-z_][\w.]*(?:\.[A-Za-z_][\w.]*)+)", culprit_stack)
+    if culprit_match:
+        culprit_part = culprit_match.group(1)
+        tokens = re.findall(r"[A-Za-z_][a-zA-Z0-9]*", culprit_part)
+    else:
+        tokens = re.findall(r"[A-Z][a-z0-9]+|[a-z][a-zA-Z0-9]*", culprit_stack)
+    skip = (
+        "the", "and", "for", "main", "anonymous", "null", "undefined",
+        "error", "syntax", "expected", "property", "name", "position", "line", "column", "at",
+    )
+    tokens = [t for t in tokens if len(t) > 2 and t.lower() not in skip]
+
+    ext = ("*.ts", "*.tsx", "*.js", "*.jsx", "*.py")
+    candidates: list[tuple[int, Path, str]] = []  # (matches, path, content)
+    for ext_pattern in ext:
+        for p in repo.rglob(ext_pattern):
+            if "node_modules" in str(p) or "dist" in str(p):
+                continue
+            try:
+                content = p.read_text(encoding="utf-8", errors="ignore")
+                matches = sum(1 for t in tokens if t in content)
+                if matches > 0:
+                    candidates.append((matches, p, content))
+            except Exception:
+                pass
+
+    if candidates:
+        def score(item: tuple[int, Path, str]) -> tuple:
+            matches, p, content = item
+            s = str(p)
+            name = p.stem.lower()
+            name_bonus = sum(1 for t in tokens if t.lower() in name or name in t.lower())
+            path_prefer = 1 if any(x in s for x in ("src", "lib", "app")) else 0
+            # CRITICAL: Prefer files that EXECUTE the code, not data files that mention it
+            # JSON.parse culprit -> prefer file with actual JSON.parse( call
+            source_bonus = 0
+            tok_lower = {t.lower() for t in tokens}
+            if "json" in tok_lower and "parse" in tok_lower and "JSON.parse(" in content:
+                source_bonus = 10  # Actual call site, not just string mention
+            # Penalize data/config files (often metadata, not execution)
+            if ".data." in name or "/data/" in s:
+                source_bonus -= 5
+            return (source_bonus, matches, name_bonus, path_prefer)
+
+        best = max(candidates, key=score)
+        return best[1]
 
     return None
 
 
 def _extract_code_from_response(response: str) -> str | None:
-    """Extract code from markdown code block in AI response."""
-    match = re.search(r"```(?:typescript|ts|javascript|js)?\s*\n(.*?)\n```", response, re.DOTALL)
+    """Extract code from markdown code block in AI response (any language)."""
+    match = re.search(r"```(?:\w+)?\s*\n(.*?)\n```", response, re.DOTALL)
     if match:
         return match.group(1).strip()
     return None
@@ -69,7 +117,7 @@ def fix_node(state: PhoenixState) -> dict:
         }
 
     # Resolve file to fix
-    target_file = _resolve_file_path(repo_path, file_path, stack_trace)
+    target_file = _resolve_file_path(repo_path, file_path, stack_trace, error_summary)
     if not target_file:
         return {
             "fix_attempt": fix_attempt,

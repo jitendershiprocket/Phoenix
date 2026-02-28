@@ -30,7 +30,8 @@ python -m src.main --from-sentry
 **Sentry mode** requires in `.env`:
 - `SENTRY_AUTH_TOKEN` - from sentry.io → Settings → Auth Tokens
 - `SENTRY_ORG` - org slug (from Sentry URL)
-- `SENTRY_PROJECT` - project slug (e.g. demo-app)
+- `SENTRY_PROJECT` - project slug (must match repos.yaml or use SENTRY_REPO_URL)
+- `SENTRY_REPO_URL` - (optional) GitHub repo URL; else use `config/repos.yaml`
 
 ### Repository Analyzer (Diagnostic Module)
 
@@ -48,6 +49,22 @@ python scripts/run_repo_analyzer.py --json
 ```
 
 Requires `GITHUB_TOKEN` in `.env`.
+
+---
+
+## Production Setup
+
+Phoenix has **no hardcoded project references**. For prod:
+
+1. **Option A (single repo):** Set in `.env`:
+   - `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN`
+   - `SENTRY_REPO_URL=https://github.com/your-org/your-repo`
+
+2. **Option B (multi-repo):** Add to `config/repos.yaml`:
+   - `name` must match `SENTRY_PROJECT` (e.g. `shiprocket-web`)
+   - `url` = GitHub repo URL
+
+Phoenix will clone the repo, resolve files from Sentry stack trace, fix the bug, validate (npm run build + lint), and open a PR.
 
 ---
 

@@ -45,6 +45,18 @@ def _build_stack_trace(entries: list[dict]) -> str:
     return "\n".join(lines) if lines else ""
 
 
+def _normalize_sentry_path(path: str) -> str:
+    """Extract usable path from webpack/sentry paths. e.g. webpack:///./src/... -> src/..."""
+    if not path:
+        return ""
+    # e.g. webpack-internal:///./src/... or ~/app/...
+    for prefix in ("webpack-internal:///", "webpack:///", "~/"):
+        if path.startswith(prefix):
+            path = path.replace(prefix, "").lstrip("./")
+            break
+    return path
+
+
 def _extract_file_and_line(entries: list[dict]) -> tuple[str, int | None]:
     """Get first in-app frame, else first frame with .ts/.tsx/.js filename."""
     best: tuple[str, int | None] = ("", None)
@@ -57,10 +69,13 @@ def _extract_file_and_line(entries: list[dict]) -> tuple[str, int | None]:
                 ln = frame.get("lineNo")
                 if not fn:
                     continue
+                fn = _normalize_sentry_path(fn)
+                if not fn:
+                    continue
                 # Prefer in-app, or .ts/.tsx source files
                 if frame.get("inApp"):
                     return (fn, ln)
-                if not best[0] and (".ts" in fn or ".tsx" in fn or "/src/" in fn):
+                if not best[0] and (".ts" in fn or ".tsx" in fn or "src" in fn):
                     best = (fn, ln)
     return best if best[0] else ("", None)
 
@@ -117,7 +132,7 @@ def fetch_latest_bug(
         entries = event.get("entries", [])
         stack_trace = _build_stack_trace(entries)
         file_path, line_number = _extract_file_and_line(entries)
-        # Include culprit so fix node can resolve file (e.g. UserService -> user.service.ts)
+        # Include culprit for fix node file resolution
         if culprit and culprit not in (stack_trace or ""):
             stack_trace = f"{culprit}\n{stack_trace}" if stack_trace else culprit
 
