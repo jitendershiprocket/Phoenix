@@ -14,6 +14,7 @@ validation:
   use_docker: false  # POC: use local ng test. Set true for sandbox.
   docker_image: node:20  # For ng test/lint
   node_version: "18"  # nvm use 18 before ng test/lint (avoids odd-version Node warnings)
+  lint_changed_only: true  # Lint only the fixed file; false = full project (production may not have lint)
 
 paths:
   work_dir: ./workspace  # Cloned repos land here

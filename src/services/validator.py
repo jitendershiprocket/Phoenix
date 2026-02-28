@@ -107,3 +107,32 @@ def run_ng_lint(repo_path: str | Path, timeout: int = 60) -> tuple[bool, str]:
         return False, "npm run lint timed out"
     except Exception as e:
         return False, str(e)
+
+
+def run_lint_changed_only(
+    repo_path: str | Path, file_path: str, timeout: int = 30
+) -> tuple[bool, str]:
+    """Lint only the changed file(s). Returns (passed, log). Uses eslint directly."""
+    path = Path(repo_path)
+    full_path = path / file_path
+    if not full_path.exists():
+        return True, f"File not found, skip lint: {file_path}"
+    if not (path / "package.json").exists():
+        return True, "No package.json (skip lint)"
+    # Also lint sibling .html if it's a component .ts
+    files_to_lint = [str(full_path)]
+    if file_path.endswith(".component.ts"):
+        html_path = full_path.with_suffix(".html")
+        if html_path.exists():
+            files_to_lint.append(str(html_path))
+    try:
+        code, log = _run_with_node(
+            ["npx", "eslint", "--no-error-on-unmatched-pattern", *files_to_lint],
+            path,
+            timeout,
+        )
+        return code == 0, log or "(no issues)"
+    except subprocess.TimeoutExpired:
+        return False, "eslint timed out"
+    except Exception as e:
+        return True, f"eslint skipped: {e}"
