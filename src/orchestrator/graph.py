@@ -23,7 +23,7 @@ def build_phoenix_graph():
     # Define flow
     graph.set_entry_point("ingest")
     graph.add_edge("ingest", "clone")
-    graph.add_edge("clone", "fix")
+    graph.add_conditional_edges("clone", _after_clone, {"fix": "fix", "abort": "abort"})
     graph.add_edge("fix", "validate")
 
     # Conditional: validate pass → PR, fail → fix (retry) or END
@@ -40,6 +40,14 @@ def build_phoenix_graph():
     graph.add_edge("pr", END)
 
     return graph.compile()
+
+
+def _after_clone(state: PhoenixState) -> str:
+    """If clone failed (no repo_path), abort early with the actual error."""
+    repo_path = state.get("repo_path", "")
+    if not repo_path:
+        return "abort"
+    return "fix"
 
 
 def _should_create_pr(state: PhoenixState) -> str:

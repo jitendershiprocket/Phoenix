@@ -23,8 +23,11 @@ def commit_and_push(
     fix_branch: str,
     commit_message: str,
     token: str | None = None,
+    push_remote: str = "origin",
 ) -> tuple[bool, str]:
-    """Commit all changes and push fix_branch. Returns (success, message)."""
+    """Commit all changes and push fix_branch. Returns (success, message).
+    push_remote: 'origin' or 'upstream' — push to this remote.
+    """
     token = token or os.getenv("GITHUB_TOKEN")
     path = Path(repo_path)
     if not (path / ".git").exists():
@@ -54,15 +57,15 @@ def commit_and_push(
                 return False, "No changes to commit"
             raise
 
-        # Push with auth
-        origin = repo.remotes.origin
-        url = origin.url
+        # Push to specified remote (origin or upstream)
+        remote = repo.remotes[push_remote]
+        url = remote.url
         push_spec = f"HEAD:{fix_branch}"
         if token and url.startswith("https://") and token not in url:
             auth_url = url.replace("https://", f"https://{token}@", 1)
             repo.git.push(auth_url, push_spec)
         else:
-            origin.push(refspec=push_spec)
+            remote.push(refspec=push_spec)
 
         return True, "Pushed"
     except Exception as e:

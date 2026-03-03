@@ -35,16 +35,30 @@ def _path_priority_score(path_str: str) -> int:
 
 
 def _resolve_file_path(
-    repo_path: str, file_path: str, stack_trace: str, error_summary: str = ""
+    repo_path: str, file_path: str, stack_trace: str, error_summary: str = "",
+    search_scope: list | None = None,
 ) -> Path | None:
     """Resolve full file path. Works for ANY file — service, component, util, pipe, etc.
 
     Uses: (1) direct path, (2) filename from stack, (3) content search by culprit tokens.
-    Disambiguates via path priority, error-property match, type-to-filename (XxxUtil->util.ts).
+    search_scope limits scan (e.g. ["src/app"]) for large codebases.
     """
     repo = Path(repo_path)
     if not repo.exists():
         return None
+
+    def _rglob_filtered(pattern: str) -> list[Path]:
+        if search_scope:
+            out = []
+            for scope in search_scope:
+                sp = repo / scope.strip("/")
+                if sp.exists():
+                    out.extend(p for p in sp.rglob(pattern)
+                               if "node_modules" not in str(p) and "dist" not in str(p))
+            if out:
+                return out
+        return [p for p in repo.rglob(pattern)
+                if "node_modules" not in str(p) and "dist" not in str(p)]
 
     # 1. Direct path from state (Sentry or manual). Skip Sentry's ":?" (unknown)
     if file_path and file_path.strip() not in (":", ":?", "?"):
@@ -52,10 +66,8 @@ def _resolve_file_path(
         candidate = repo / path_clean
         if candidate.exists():
             return candidate
-        # Search repo for filename (works for any project structure)
         fname = Path(path_clean).name
-        same_name = [p for p in repo.rglob(fname)
-                     if "node_modules" not in str(p) and "dist" not in str(p)]
+        same_name = _rglob_filtered(fname)
         if same_name:
             return max(same_name, key=lambda p: _path_priority_score(str(p)))
 
@@ -63,10 +75,21 @@ def _resolve_file_path(
     match = re.search(r"[\w/.-]+\.(?:ts|tsx|js|jsx|py|java)(?=:\d|\)|$)", stack_trace or "")
     if match:
         fname = Path(match.group(0).strip()).name
-        same_name = [p for p in repo.rglob(fname)
-                     if "node_modules" not in str(p) and "dist" not in str(p)]
+        same_name = _rglob_filtered(fname)
         if same_name:
             return max(same_name, key=lambda p: _path_priority_score(str(p)))
+
+    # 2b. Culprit "SettingsComponent.loadSettingData" -> search settings.component.ts directly
+    culprit_match = re.search(r"([A-Za-z_][\w.]*(?:\.[A-Za-z_][\w.]*)+)", (stack_trace or "") + " " + (file_path or ""))
+    if culprit_match:
+        parts = re.findall(r"[A-Z][a-z]*|[a-z]+", culprit_match.group(1).split(".")[0])
+        if parts and (parts[-1] in ("Component", "Service", "Module", "Pipe", "Directive")):
+            base = "".join(p.lower() for p in parts[:-1])
+            suffix = parts[-1].lower()
+            for fname_pattern in (f"{base}.{suffix}.ts", f"{base}.{suffix}.tsx", f"{base}-{suffix}.ts"):
+                same = _rglob_filtered(fname_pattern)
+                if same:
+                    return max(same, key=lambda p: _path_priority_score(str(p)))
 
     # 3. Generic: extract identifiers from culprit/stack — works for ANY file type
     # (services, components, utils, helpers, pipes, guards, standalone functions, etc.)
@@ -88,12 +111,31 @@ def _resolve_file_path(
     )
     tokens = [t for t in tokens if len(t) > 2 and t.lower() not in skip]
 
+    # Path hint from culprit: SettingsComponent → prefer paths with "settings"
+    path_hints: list[str] = []
+    for t in tokens:
+        if t.endswith("Component") or t.endswith("Service") or t.endswith("Module"):
+            base = re.sub(r"(Component|Service|Module)$", "", t, flags=re.I)
+            if base and len(base) > 2:
+                parts = re.findall(r"[a-z]+|[A-Z][a-z]*", base)
+                path_hints = [p.lower() for p in parts if len(p) > 1]
+                break
+
     ext = ("*.ts", "*.tsx", "*.js", "*.jsx", "*.py")
     candidates: list[tuple[int, Path, str]] = []  # (matches, path, content)
+    max_files = 120  # cap content reads for large repos
+    seen = 0
     for ext_pattern in ext:
-        for p in repo.rglob(ext_pattern):
-            if "node_modules" in str(p) or "dist" in str(p):
-                continue
+        if len(candidates) >= 10 and any(c[0] >= 3 for c in candidates):
+            break  # early exit if we have good matches
+        for p in _rglob_filtered(ext_pattern):
+            if seen >= max_files:
+                break
+            if path_hints:
+                pstr = str(p).lower()
+                if not any(h in pstr for h in path_hints):
+                    continue
+            seen += 1
             try:
                 content = p.read_text(encoding="utf-8", errors="ignore")
                 matches = sum(1 for t in tokens if t in content)
@@ -101,6 +143,8 @@ def _resolve_file_path(
                     candidates.append((matches, p, content))
             except Exception:
                 pass
+        if seen >= max_files:
+            break
 
     if candidates:
         error_prop = _extract_error_property(error_summary)
@@ -182,6 +226,63 @@ def _extract_code_from_response(response: str) -> str | None:
     return None
 
 
+def _apply_optional_chaining_fix(content: str, error_prop: str) -> str | None:
+    """Rule-based fix for 'Cannot read properties of undefined (reading X)'.
+    Generic: finds any chain.property (or chain().property) without ?. and adds optional chaining.
+    Returns modified content if changed, else None."""
+    if not error_prop:
+        return None
+
+    # Regex: match chain.property — chain can be ident, ident.ident, ident(), ident().prop, etc.
+    pattern = rf"\b([a-zA-Z_$][\w$]*(?:\(\))?(?:\.[a-zA-Z_$][\w$]*(?:\(\))?)*)\.({re.escape(error_prop)})\b"
+    modified = False
+
+    def replacer(m: re.Match) -> str:
+        nonlocal modified
+        chain = m.group(1)
+        prop = m.group(2)
+        if "?." in chain:
+            return m.group(0)
+        modified = True
+        return chain.replace(".", "?.") + "?." + prop
+
+    result = re.sub(pattern, replacer, content)
+    return result if modified else None
+
+
+def _find_files_with_property(
+    repo_path: str | Path, error_prop: str, search_scope: list | None, exclude_path: Path | None
+) -> list[Path]:
+    """Find files that contain .error_prop (potential bug site) for multi-file rule-based fix."""
+    repo = Path(repo_path)
+    if not repo.exists():
+        return []
+
+    def _rglob_filtered(pattern: str) -> list[Path]:
+        if search_scope:
+            out = []
+            for scope in search_scope:
+                sp = repo / scope.strip("/")
+                if sp.exists():
+                    out.extend(p for p in sp.rglob(pattern)
+                               if "node_modules" not in str(p) and "dist" not in str(p))
+            return out
+        return [p for p in repo.rglob(pattern)
+                if "node_modules" not in str(p) and "dist" not in str(p)]
+
+    candidates: list[Path] = []
+    for ext in ("*.ts", "*.tsx", "*.js", "*.jsx"):
+        for p in _rglob_filtered(ext):
+            if exclude_path and p.resolve() == exclude_path.resolve():
+                continue
+            try:
+                if f".{error_prop}" in p.read_text(encoding="utf-8", errors="ignore"):
+                    candidates.append(p)
+            except Exception:
+                pass
+    return candidates
+
+
 def fix_node(state: PhoenixState) -> dict:
     """Use Opus 4.6 to generate fix and apply to repo."""
     repo_path = state.get("repo_path", "")
@@ -196,14 +297,19 @@ def fix_node(state: PhoenixState) -> dict:
         return {
             "fix_attempt": fix_attempt,
             "fix_applied": False,
+            "fix_failure_reason": "Missing repo_path or error_summary",
         }
 
-    # Resolve file to fix
-    target_file = _resolve_file_path(repo_path, file_path, stack_trace, error_summary)
+    # Resolve file to fix (search_scope limits scan for large repos)
+    search_scope = state.get("search_scope")
+    target_file = _resolve_file_path(
+        repo_path, file_path, stack_trace, error_summary, search_scope=search_scope
+    )
     if not target_file:
         return {
             "fix_attempt": fix_attempt,
             "fix_applied": False,
+            "fix_failure_reason": f"Could not resolve file. file_path={file_path!r}, culprit=loadSettingData",
             "validation_log": f"Could not resolve file from stack_trace. file_path={file_path!r}",
         }
 
@@ -213,15 +319,55 @@ def fix_node(state: PhoenixState) -> dict:
         return {
             "fix_attempt": fix_attempt,
             "fix_applied": False,
+            "fix_failure_reason": f"Could not read file: {e}",
             "validation_log": str(e),
         }
 
+    # Rule-based fix for "Cannot read properties of undefined (reading 'X')" — add optional chaining
+    is_undefined_prop_error = "Cannot read properties of undefined" in (error_summary or "") and "reading" in (error_summary or "")
+    error_prop = _extract_error_property(error_summary)
+    if is_undefined_prop_error and error_prop:
+        fixed_content = _apply_optional_chaining_fix(file_content, error_prop)
+        if fixed_content and fixed_content != file_content:
+            try:
+                target_file.write_text(fixed_content, encoding="utf-8")
+                rel_path = str(target_file.relative_to(Path(repo_path))) if repo_path else str(target_file)
+                return {
+                    "fix_attempt": fix_attempt,
+                    "fix_applied": True,
+                    "file_path": rel_path,
+                }
+            except Exception as e:
+                pass  # fall through to AI
+
     # Call Opus 4.6
-    user_prompt = FIX_USER_PROMPT_TEMPLATE.format(
-        error_summary=error_summary,
-        stack_trace=stack_trace,
-        file_path=str(target_file.relative_to(Path(repo_path))) if repo_path else str(target_file),
-        file_content=file_content,
+    line_number = state.get("line_number")
+    culprit = state.get("culprit", "") or ""
+    # Extract failing function from culprit: "_SettingsComponent.loadSettingData(...)" -> "loadSettingData"
+    failing_fn = ""
+    if culprit:
+        m = re.search(r"\.(\w+)\s*\(", culprit)
+        if m:
+            failing_fn = m.group(1)
+        elif "." in culprit:
+            failing_fn = culprit.split(".")[-1].split("(")[0].strip()
+    error_prop = _extract_error_property(error_summary)
+    hints = []
+    if line_number:
+        hints.append(f"**Error occurs at line {line_number}.**")
+    if failing_fn:
+        hints.append(f"**Failing function:** {failing_fn}")
+    if error_prop:
+        hints.append(f"**Failing property (add ?. to chain before this):** {error_prop}")
+    hint_block = "\n".join(hints) + "\n" if hints else ""
+    user_prompt = (
+        FIX_USER_PROMPT_TEMPLATE.format(
+            error_summary=error_summary,
+            stack_trace=stack_trace,
+            file_path=str(target_file.relative_to(Path(repo_path))) if repo_path else str(target_file),
+            file_content=file_content,
+        )
+        + hint_block
     )
 
     try:
@@ -230,6 +376,7 @@ def fix_node(state: PhoenixState) -> dict:
         return {
             "fix_attempt": fix_attempt,
             "fix_applied": False,
+            "fix_failure_reason": f"AI call failed: {e}",
             "validation_log": f"AI call failed: {e}",
         }
 
@@ -238,7 +385,49 @@ def fix_node(state: PhoenixState) -> dict:
         return {
             "fix_attempt": fix_attempt,
             "fix_applied": False,
+            "fix_failure_reason": "AI did not return valid code block",
             "validation_log": "AI did not return valid code block",
+        }
+
+    if fixed_code.strip() == file_content.strip():
+        # Fallback 1: try rule-based on primary file again
+        if is_undefined_prop_error and error_prop:
+            fixed_content = _apply_optional_chaining_fix(file_content, error_prop)
+            if fixed_content and fixed_content != file_content:
+                try:
+                    target_file.write_text(fixed_content, encoding="utf-8")
+                    rel_path = str(target_file.relative_to(Path(repo_path))) if repo_path else str(target_file)
+                    return {
+                        "fix_attempt": fix_attempt,
+                        "fix_applied": True,
+                        "file_path": rel_path,
+                    }
+                except Exception:
+                    pass
+        # Fallback 2: AI returned same, primary file has no fix — scan OTHER files with error_prop
+        if is_undefined_prop_error and error_prop:
+            other_files = _find_files_with_property(
+                repo_path, error_prop, state.get("search_scope"), target_file
+            )
+            for other in other_files:
+                try:
+                    other_content = other.read_text(encoding="utf-8", errors="replace")
+                    fixed_content = _apply_optional_chaining_fix(other_content, error_prop)
+                    if fixed_content and fixed_content != other_content:
+                        other.write_text(fixed_content, encoding="utf-8")
+                        rel_path = str(other.relative_to(Path(repo_path))) if repo_path else str(other)
+                        return {
+                            "fix_attempt": fix_attempt,
+                            "fix_applied": True,
+                            "file_path": rel_path,
+                        }
+                except Exception:
+                    pass
+        return {
+            "fix_attempt": fix_attempt,
+            "fix_applied": False,
+            "fix_failure_reason": "AI returned identical code — no fix applied.",
+            "validation_log": "AI returned identical code — no fix applied.",
         }
 
     try:
@@ -247,6 +436,7 @@ def fix_node(state: PhoenixState) -> dict:
         return {
             "fix_attempt": fix_attempt,
             "fix_applied": False,
+            "fix_failure_reason": f"Could not write file: {e}",
             "validation_log": str(e),
         }
 

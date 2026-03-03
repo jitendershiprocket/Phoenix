@@ -31,6 +31,8 @@ def ingest_node(state: PhoenixState) -> dict:
         "error_summary": payload.get("error_summary", state.get("error_summary", "")),
         "file_path": payload.get("file_path", state.get("file_path", "")),
         "stack_trace": payload.get("stack_trace", state.get("stack_trace", "")),
+        "line_number": payload.get("line_number") if payload.get("line_number") is not None else state.get("line_number"),
+        "culprit": payload.get("culprit", state.get("culprit", "")),
         "angular_version": angular_version,
         "node_version": node_version,
     }

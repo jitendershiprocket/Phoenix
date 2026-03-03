@@ -13,8 +13,10 @@ orchestrator:
 validation:
   use_docker: false  # POC: use local ng test. Set true for sandbox.
   docker_image: node:20  # For ng test/lint
-  node_version: "18"  # nvm use 18 before ng test/lint (avoids odd-version Node warnings)
+  node_version: "20"  # nvm use 20 before ng test/lint
+  npm_install_args: ["--force"]  # Resolve peer-dep conflicts (e.g. Angular 19)
   lint_changed_only: true  # Lint only the fixed file; false = full project (production may not have lint)
+  eslint_timeout: 0    # 0 = no timeout (large projects may take 2-4 min)
 
 paths:
   work_dir: ./workspace  # Cloned repos land here

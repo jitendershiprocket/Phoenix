@@ -84,12 +84,20 @@ class RepoManager:
         base_branch: str,
         fix_branch: str,
     ) -> None:
-        """Checkout base branch, create fix branch from it."""
-        repo.git.checkout(base_branch)
+        """Checkout base branch, create fix branch from it. Reset to clean remote (discard prior local changes)."""
         try:
-            repo.git.pull("origin", base_branch)
+            repo.git.checkout(base_branch)
+        except GitCommandError:
+            repo.remotes.origin.fetch(base_branch)
+            repo.git.checkout("-B", base_branch, f"origin/{base_branch}")
+        try:
+            repo.remotes.origin.fetch()
+            repo.git.reset("--hard", f"origin/{base_branch}")
         except Exception:
-            pass
+            try:
+                repo.git.pull("origin", base_branch)
+            except Exception:
+                pass
         # Delete fix_branch if exists, create fresh
         try:
             repo.delete_head(fix_branch, force=True)

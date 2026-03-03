@@ -44,11 +44,19 @@ def _build_rca_body(state: PhoenixState) -> str:
     return "\n".join(line for line in lines if line)
 
 
+def _owner_from_url(url: str) -> str:
+    """Extract owner from URL. e.g. https://github.com/jitendershiprocket/SR_Web -> jitendershiprocket"""
+    url = url.rstrip("/").replace(".git", "")
+    parts = [p for p in url.split("/") if p and p not in ("https:", "http:")]
+    return parts[-2] if len(parts) >= 2 else ""
+
+
 def pr_node(state: PhoenixState) -> dict:
     """Commit, push, and create PR via GitHub API."""
     repo_path = state.get("repo_path", "")
     fix_branch = state.get("fix_branch", "")
-    repo_url = state.get("repo_url", "")
+    repo_url = state.get("repo_url", "")  # fork URL - push goes to origin (this)
+    upstream_url = state.get("upstream_url", "")
     base_branch = state.get("branch", "main")
     error_summary = state.get("error_summary", "")
 
@@ -56,7 +64,8 @@ def pr_node(state: PhoenixState) -> dict:
         return {"status": "failed", "pr_url": None, "validation_log": "Missing repo_path, fix_branch, or repo_url"}
 
     if not state.get("fix_applied", False):
-        return {"status": "failed", "pr_url": None, "validation_log": "No fix was applied (file resolution failed or fix skipped)"}
+        reason = state.get("fix_failure_reason", "No fix was applied (file resolution failed or fix skipped)")
+        return {"status": "failed", "pr_url": None, "validation_log": reason}
 
     token = os.getenv("GITHUB_TOKEN")
     if not token:
@@ -66,17 +75,20 @@ def pr_node(state: PhoenixState) -> dict:
     short_error = (error_summary[:60] + "…") if len(error_summary) > 60 else error_summary
     commit_msg = f"fix: {short_error}\n\n[Project Phoenix auto-fix]"
 
-    # 1. Commit and push
-    ok, msg = commit_and_push(repo_path, fix_branch, commit_msg, token)
+    # 1. Commit and push — when upstream_url, push directly to bfrs (no fork)
+    push_remote = "upstream" if upstream_url else "origin"
+    ok, msg = commit_and_push(repo_path, fix_branch, commit_msg, token, push_remote=push_remote)
     if not ok:
         return {"status": "failed", "pr_url": None, "validation_log": f"Push failed: {msg}"}
 
-    # 2. Create PR
+    # 2. Create PR — same repo (bfrs), head=fix_branch, base=ng_19_9may
     title = f"fix: {short_error}"
     body = _build_rca_body(state)
+    pr_base_url = upstream_url or repo_url
+    head_ref = fix_branch
     pr_url, err = create_pull_request(
-        repo_url=repo_url,
-        fix_branch=fix_branch,
+        repo_url=pr_base_url,
+        fix_branch=head_ref,
         base_branch=base_branch,
         title=title,
         body=body,

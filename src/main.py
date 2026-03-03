@@ -31,25 +31,49 @@ def _load_config() -> dict:
     return {}
 
 
-def _get_repo_url_for_sentry(project_slug: str) -> str:
-    """Get repo URL: SENTRY_REPO_URL env, or repos.yaml (name matches SENTRY_PROJECT)."""
+def _get_repo_config_for_sentry(project_slug: str) -> dict:
+    """Get repo config from SENTRY_REPO_URL env or repos.yaml.
+    Returns dict with url, branch, node_version, angular_version, search_scope."""
     import os
     env_url = os.getenv("SENTRY_REPO_URL")
     if env_url:
-        return env_url
+        return {
+            "url": env_url,
+            "branch": os.getenv("SENTRY_BRANCH", "main"),
+            "node_version": None,
+            "angular_version": None,
+            "search_scope": None,
+        }
+
     repos_path = _phoenix_root / "config" / "repos.yaml"
     if repos_path.exists():
         with open(repos_path) as f:
             data = yaml.safe_load(f) or {}
         for r in data.get("repos", []):
             if r.get("name", "").lower() == project_slug.lower():
-                return r.get("url", "")
-            if project_slug and not data.get("repos"):
-                break
+                out = {
+                    "url": r.get("url", ""),
+                    "branch": r.get("default_branch", "main"),
+                    "node_version": r.get("node_version"),
+                    "angular_version": r.get("angular_version"),
+                    "search_scope": r.get("search_scope"),
+                }
+                if r.get("local_repo_path"):
+                    out["local_repo_path"] = r["local_repo_path"]
+                if r.get("upstream_url"):
+                    out["upstream_url"] = r["upstream_url"]
+                return out
         repos = data.get("repos", [])
         if repos:
-            return repos[0].get("url", "")
-    return ""
+            r = repos[0]
+            return {
+                "url": r.get("url", ""),
+                "branch": r.get("default_branch", "main"),
+                "node_version": r.get("node_version"),
+                "angular_version": r.get("angular_version"),
+                "search_scope": r.get("search_scope"),
+            }
+    return {"url": "", "branch": "main", "node_version": None, "angular_version": None, "search_scope": None}
 
 
 def main():
@@ -62,25 +86,42 @@ def main():
         action="store_true",
         help="Fetch latest bug from Sentry and resolve (no --repo/--error needed)",
     )
+    parser.add_argument(
+        "--project",
+        help="Sentry project slug (e.g. seller_19). Uses SENTRY_ORG_<PROJECT>, SENTRY_BASE_URL_<PROJECT> from .env",
+    )
     args = parser.parse_args()
     bug = None
 
     if args.from_sentry:
         import os
 
-        org = os.getenv("SENTRY_ORG")
-        project = os.getenv("SENTRY_PROJECT")
-        if not org or not project:
-            print("Error: SENTRY_ORG and SENTRY_PROJECT required in .env for --from-sentry")
+        if args.project:
+            key = args.project.upper().replace("-", "_")
+            org = os.getenv(f"SENTRY_ORG_{key}") or os.getenv("SENTRY_ORG")
+            base_url = os.getenv(f"SENTRY_BASE_URL_{key}") or os.getenv("SENTRY_BASE_URL")
+            config = _get_repo_config_for_sentry(args.project)
+            sentry_slug = args.project
+        else:
+            org = os.getenv("SENTRY_ORG")
+            sentry_slug = os.getenv("SENTRY_PROJECT")
+            base_url = os.getenv("SENTRY_BASE_URL")
+            config = {}
+
+        if not org or not sentry_slug:
+            print("Error: SENTRY_ORG and SENTRY_PROJECT required in .env for --from-sentry (or use --project X with SENTRY_ORG_X, SENTRY_BASE_URL_X)")
             return
 
         print("\n🔄 Fetching latest bug from Sentry...")
-        bug = fetch_latest_bug(org, project)
+        bug = fetch_latest_bug(org, sentry_slug, base_url=base_url)
         if not bug:
             print("No unresolved issues in Sentry.")
             return
 
-        repo_url = _get_repo_url_for_sentry(project)
+        if not config:
+            config = _get_repo_config_for_sentry(args.project or sentry_slug)
+        repo_url = config.get("url", "")
+        branch = config.get("branch", "main")
         if not repo_url:
             print("Error: Set SENTRY_REPO_URL in .env or add project to config/repos.yaml")
             return
@@ -97,21 +138,34 @@ def main():
         print(f"Last seen:    {bug.last_seen}")
         print(f"Link:         {bug.permalink}")
         print(f"Repo:         {repo_url}")
+        print(f"Branch:       {branch}  (clone + PR target)")
         print("=" * 60 + "\n")
 
         error_summary = bug.error_summary or bug.title or bug.culprit or "Unknown error"
         stack_trace = bug.stack_trace or error_summary
+        error_payload = {
+            "error_summary": error_summary,
+            "file_path": bug.file_path or "",
+            "stack_trace": stack_trace,
+            "line_number": bug.line_number,
+            "culprit": bug.culprit or "",
+        }
+        if config.get("angular_version"):
+            error_payload["angular_version"] = config["angular_version"]
+        if config.get("node_version"):
+            error_payload["node_version"] = config["node_version"]
         initial_state = {
             "repo_url": repo_url,
-            "branch": args.branch,
-            "error_payload": {
-                "error_summary": error_summary,
-                "file_path": bug.file_path or "",
-                "stack_trace": stack_trace,
-            },
+            "branch": args.branch if not args.from_sentry else branch,
+            "search_scope": config.get("search_scope"),
+            "error_payload": error_payload,
             "fix_attempt": 0,
             "max_attempts": 3,
         }
+        if config.get("local_repo_path"):
+            initial_state["local_repo_path"] = config["local_repo_path"]
+        if config.get("upstream_url"):
+            initial_state["upstream_url"] = config["upstream_url"]
     else:
         if not args.repo or not args.error:
             parser.error("Use --repo and --error, or --from-sentry")
@@ -139,13 +193,13 @@ def main():
         print(f"PR: {result['pr_url']}")
     if args.from_sentry and bug:
         print(f"Sentry issue resolved: {bug.short_id}")
-    if status == "aborted":
+    if status in ("aborted", "failed"):
         fix_applied = result.get("fix_applied", False)
         print(f"Fix applied: {fix_applied}")
-        log = result.get("validation_log", "")
+        log = result.get("fix_failure_reason") or result.get("validation_log", "")
         if log:
-            print("Validation log (last 500 chars):")
-            print(log[-500:] if len(log) > 500 else log)
+            print("Reason / validation log (last 800 chars):")
+            print(log[-800:] if len(log) > 800 else log)
     return result
 
 

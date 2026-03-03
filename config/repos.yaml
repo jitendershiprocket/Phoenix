@@ -8,6 +8,15 @@ repos:
     url: https://github.com/jitendershiprocket/demo-app
     default_branch: main
 
+  - name: seller_19   # SR_Web - Sentry project 4510981177081856
+    url: https://github.com/jitendershiprocket/SR_Web
+    default_branch: agent_ai
+    node_version: "20"
+    angular_version: "19"
+    npm_install_args: ["--force"]
+    search_scope: ["src/app"]
+    skip_lint: true
+
   # Add prod mapping, e.g.:
   # - name: your-sentry-project-slug
   #   url: https://github.com/your-org/your-repo
