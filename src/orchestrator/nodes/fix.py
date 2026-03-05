@@ -79,6 +79,35 @@ def _resolve_file_path(
         if same_name:
             return max(same_name, key=lambda p: _path_priority_score(str(p)))
 
+    # 2a. Webpack: "Object.next(packaging.module-OKT5ZWO7)" -> extract "packaging", find packaging-list
+    combined = f"{stack_trace or ''} {file_path or ''}"
+    webpack_match = re.search(r"([a-zA-Z_][a-zA-Z0-9]*)\.module(?:-\w+)?", combined)
+    if webpack_match:
+        module_name = webpack_match.group(1).lower()
+        if len(module_name) > 2 and module_name not in ("object", "next", "main"):
+            error_prop = _extract_error_property(error_summary)
+            candidates = [
+                p for p in _rglob_filtered("*.ts")
+                if module_name in str(p).lower() and ".spec." not in p.name and ".test." not in p.name
+            ]
+            candidates += [
+                p for p in _rglob_filtered("*.tsx")
+                if module_name in str(p).lower() and ".spec." not in p.name and ".test." not in p.name
+            ]
+            if candidates:
+                def _score(p: Path) -> tuple:
+                    s = str(p)
+                    scr = _path_priority_score(s)
+                    if error_prop:
+                        try:
+                            c = p.read_text(encoding="utf-8", errors="ignore") or ""
+                            if f".{error_prop}" in c:
+                                return (scr + 25, s)  # prefer file with the failing property
+                        except Exception:
+                            pass
+                    return (scr, s)
+                return max(candidates, key=_score)
+
     # 2b. Culprit "SettingsComponent.loadSettingData" -> search settings.component.ts directly
     culprit_match = re.search(r"([A-Za-z_][\w.]*(?:\.[A-Za-z_][\w.]*)+)", (stack_trace or "") + " " + (file_path or ""))
     if culprit_match:
