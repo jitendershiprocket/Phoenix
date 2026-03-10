@@ -17,6 +17,7 @@ validation:
   npm_install_args: ["--force"]  # Resolve peer-dep conflicts (e.g. Angular 19)
   lint_changed_only: true  # Lint only the fixed file; false = full project (production may not have lint)
   eslint_timeout: 0    # 0 = no timeout (large projects may take 2-4 min)
+  build_timeout: 480   # npm install + npm run build timeout (sec). 480 = 8 min for large Angular apps
 
 paths:
   work_dir: ./workspace  # Cloned repos land here

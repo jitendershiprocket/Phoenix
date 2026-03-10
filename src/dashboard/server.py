@@ -10,6 +10,7 @@ from src.dashboard.progress import progress
 
 _server_thread: threading.Thread | None = None
 _app = None
+_server = None
 
 
 def _create_app():
@@ -56,31 +57,49 @@ setInterval(()=>fetch('/api/status').then(r=>r.json()).then(d=>{
     return app
 
 
+def stop_dashboard() -> None:
+    """Stop dashboard server and release the port."""
+    global _server_thread, _server
+    if _server is not None:
+        try:
+            _server.shutdown()
+        except Exception:
+            pass
+        _server = None
+    _server_thread = None
+
+
 def start_dashboard(port: int = 5050) -> int:
     """Start dashboard server in background thread. Returns actual port used."""
     import socket
-    global _server_thread, _app
+    import time
+    global _server_thread, _app, _server
     if _server_thread is not None and _server_thread.is_alive():
         return port
 
     def _port_free(p: int) -> bool:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 s.bind(("", p))
                 return True
             except OSError:
                 return False
 
     actual_port = port
-    for _ in range(5):
+    for _ in range(20):
         if _port_free(actual_port):
             break
         actual_port += 1
+        time.sleep(0.05)
 
     _app = _create_app()
 
     def run():
-        _app.run(host="0.0.0.0", port=actual_port, threaded=True, use_reloader=False)
+        from werkzeug.serving import make_server
+        global _server
+        _server = make_server("0.0.0.0", actual_port, _app, threaded=True)
+        _server.serve_forever()
 
     _server_thread = threading.Thread(target=run, daemon=True)
     _server_thread.start()

@@ -9,6 +9,8 @@ Usage:
 """
 
 import argparse
+import atexit
+import signal
 from pathlib import Path
 
 import yaml
@@ -126,9 +128,18 @@ def main():
         if args.dashboard:
             import time as _time
             from src.dashboard.progress import progress
-            from src.dashboard.server import start_dashboard
+            from src.dashboard.server import start_dashboard, stop_dashboard
             progress.reset("Fetching bug from Sentry...")
             port = start_dashboard(args.dashboard_port)
+            def _on_exit():
+                stop_dashboard()
+            atexit.register(_on_exit)
+
+            def _sigint_handler(signum, frame):
+                stop_dashboard()
+                signal.signal(signal.SIGINT, signal.SIG_DFL)
+                raise KeyboardInterrupt()
+            signal.signal(signal.SIGINT, _sigint_handler)
             print(f"📊 Dashboard: http://localhost:{port}\n")
             print("\n🔄 Fetching latest bug from Sentry...")
             progress.step_start("fetch")
@@ -223,9 +234,16 @@ def main():
 
     if args.dashboard and not bug:
         from src.dashboard.progress import progress
-        from src.dashboard.server import start_dashboard
+        from src.dashboard.server import start_dashboard, stop_dashboard
         progress.reset(args.error or "Manual run")
         start_dashboard(args.dashboard_port)
+        atexit.register(stop_dashboard)
+
+        def _sigint(s, f):
+            stop_dashboard()
+            signal.signal(signal.SIGINT, signal.SIG_DFL)
+            raise KeyboardInterrupt()
+        signal.signal(signal.SIGINT, _sigint)
 
     graph = build_phoenix_graph(enable_dashboard=args.dashboard)
     result = graph.invoke(initial_state)
@@ -238,7 +256,7 @@ def main():
         progress.set_overall_done(success)
         if result.get("pr_url"):
             progress.set_pr_url(result["pr_url"])
-        _t.sleep(2)  # Let UI poll and show success + PR link before process exits
+        _t.sleep(6)  # Let UI poll and show success + PR link before process exits
 
     print("\n--- Phoenix Agent Result ---")
     status = result.get("status", "unknown")

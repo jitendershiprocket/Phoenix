@@ -72,6 +72,34 @@ def _get_npm_install_args(repo_url: str | None = None) -> list[str]:
     return []
 
 
+def _get_build_timeout(repo_url: str | None = None) -> int:
+    """Get build timeout in seconds. Per-repo from repos.yaml, else settings.yaml."""
+    if repo_url:
+        try:
+            repos_path = Path(__file__).resolve().parents[2] / "config" / "repos.yaml"
+            if repos_path.exists():
+                import yaml
+                with open(repos_path) as f:
+                    data = yaml.safe_load(f) or {}
+                for r in data.get("repos", []):
+                    if r.get("url", "").rstrip("/") == repo_url.rstrip("/"):
+                        if r.get("build_timeout") is not None:
+                            return int(r["build_timeout"])
+                        break
+        except Exception:
+            pass
+    try:
+        config_path = Path(__file__).resolve().parents[2] / "config" / "settings.yaml"
+        if config_path.exists():
+            import yaml
+            with open(config_path) as f:
+                cfg = yaml.safe_load(f) or {}
+            return int(cfg.get("validation", {}).get("build_timeout", 480))
+    except Exception:
+        pass
+    return 480
+
+
 def _get_eslint_timeout(repo_url: str | None = None) -> int | None:
     """Get eslint timeout in seconds. 0 = no timeout (None for subprocess)."""
     try:
@@ -128,11 +156,13 @@ def _ensure_deps(repo_path: Path, timeout: int = 120, repo_url: str | None = Non
         return False, str(e)
 
 
-def run_ng_build(repo_path: str | Path, timeout: int = 120, repo_url: str | None = None) -> tuple[bool, str]:
+def run_ng_build(repo_path: str | Path, timeout: int | None = None, repo_url: str | None = None) -> tuple[bool, str]:
     """Run npm run build. Works for Angular, React, Vue, etc. Returns (passed, log)."""
     path = Path(repo_path)
     if not (path / "package.json").exists():
         return False, "No package.json found"
+    if timeout is None:
+        timeout = _get_build_timeout(repo_url)
     ok, msg = _ensure_deps(path, timeout, repo_url)
     if not ok:
         return False, f"npm install failed: {msg}"
