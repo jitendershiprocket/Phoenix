@@ -3,21 +3,65 @@
 Flow: INGEST → CLONE → FIX → VALIDATE → (PR | back to FIX on fail)
 """
 
+import time
+
 from langgraph.graph import StateGraph, END
 from .state import PhoenixState
 from .nodes import ingest_node, clone_node, fix_node, validate_node, pr_node, abort_node
 
 
-def build_phoenix_graph():
+def _wrap_with_progress(node_fn, step_name: str):
+    """Wrap node to report progress to dashboard."""
+    try:
+        from src.dashboard.progress import progress
+    except ImportError:
+        return node_fn
+
+    def wrapped(state):
+        msg = ""
+        if step_name == "fix":
+            msg = "AI generating fix..."
+        elif step_name == "validate":
+            msg = "ng build running..."
+        progress.step_start(step_name, msg)
+        t0 = time.time()
+        try:
+            out = node_fn(state)
+            success = True
+            if step_name == "clone" and not out.get("repo_path"):
+                success = False
+            elif step_name == "fix" and out.get("fix_failure_reason"):
+                success = False
+            elif step_name == "validate":
+                success = bool(out.get("tests_passed") and out.get("lint_passed"))
+            elif step_name == "pr" and out.get("status") == "failed":
+                success = False
+            msg = out.get("validation_log", "")[:150] or out.get("fix_failure_reason", "")[:150] or ("Done" if success else "Failed")
+            progress.step_end(step_name, time.time() - t0, msg, success)
+            if step_name == "pr" and out.get("pr_url"):
+                progress.set_pr_url(out["pr_url"])
+            return out
+        except Exception as e:
+            progress.step_end(step_name, time.time() - t0, str(e)[:150], False)
+            raise
+
+    return wrapped
+
+
+def build_phoenix_graph(enable_dashboard: bool = True):
     """Build the LangGraph state machine for Project Phoenix."""
     graph = StateGraph(PhoenixState)
 
-    # Add nodes
+    clone = _wrap_with_progress(clone_node, "clone") if enable_dashboard else clone_node
+    fix = _wrap_with_progress(fix_node, "fix") if enable_dashboard else fix_node
+    validate = _wrap_with_progress(validate_node, "validate") if enable_dashboard else validate_node
+    pr = _wrap_with_progress(pr_node, "pr") if enable_dashboard else pr_node
+
     graph.add_node("ingest", ingest_node)
-    graph.add_node("clone", clone_node)
-    graph.add_node("fix", fix_node)
-    graph.add_node("validate", validate_node)
-    graph.add_node("pr", pr_node)
+    graph.add_node("clone", clone)
+    graph.add_node("fix", fix)
+    graph.add_node("validate", validate)
+    graph.add_node("pr", pr)
     graph.add_node("abort", abort_node)
 
     # Define flow

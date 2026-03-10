@@ -90,6 +90,17 @@ def main():
         "--project",
         help="Sentry project slug (e.g. seller_19). Uses SENTRY_ORG_<PROJECT>, SENTRY_BASE_URL_<PROJECT> from .env",
     )
+    parser.add_argument(
+        "--dashboard",
+        action="store_true",
+        help="Start web dashboard at http://localhost:5050",
+    )
+    parser.add_argument(
+        "--dashboard-port",
+        type=int,
+        default=5050,
+        help="Dashboard port (default: 5050)",
+    )
     args = parser.parse_args()
     bug = None
 
@@ -112,8 +123,23 @@ def main():
             print("Error: SENTRY_ORG and SENTRY_PROJECT required in .env for --from-sentry (or use --project X with SENTRY_ORG_X, SENTRY_BASE_URL_X)")
             return
 
-        print("\n🔄 Fetching latest bug from Sentry...")
+        if args.dashboard:
+            import time as _time
+            from src.dashboard.progress import progress
+            from src.dashboard.server import start_dashboard
+            progress.reset("Fetching bug from Sentry...")
+            port = start_dashboard(args.dashboard_port)
+            print(f"📊 Dashboard: http://localhost:{port}\n")
+            print("\n🔄 Fetching latest bug from Sentry...")
+            progress.step_start("fetch")
+            t0 = _time.time()
+        else:
+            print("\n🔄 Fetching latest bug from Sentry...")
+
         bug = fetch_latest_bug(org, sentry_slug, base_url=base_url)
+
+        if args.dashboard:
+            progress.step_end("fetch", _time.time() - t0, f"Fetched {bug.short_id}" if bug else "No bug", success=bool(bug))
         if not bug:
             print("No unresolved issues in Sentry.")
             return
@@ -140,6 +166,18 @@ def main():
         print(f"Repo:         {repo_url}")
         print(f"Branch:       {branch}  (clone + PR target)")
         print("=" * 60 + "\n")
+
+        if args.dashboard:
+            from src.dashboard.progress import progress
+            summary = f"{bug.short_id}: {bug.title or bug.error_summary or 'Unknown error'}"[:120]
+            progress.set_bug_summary(summary)
+            progress.set_bug_details({
+                "short_id": bug.short_id,
+                "error": bug.error_summary or bug.title or "(no error)",
+                "culprit": bug.culprit or "",
+                "file": bug.file_path or ":?",
+                "link": bug.permalink or "",
+            })
 
         error_summary = bug.error_summary or bug.title or bug.culprit or "Unknown error"
         stack_trace = bug.stack_trace or error_summary
@@ -183,8 +221,24 @@ def main():
             "max_attempts": 3,
         }
 
-    graph = build_phoenix_graph()
+    if args.dashboard and not bug:
+        from src.dashboard.progress import progress
+        from src.dashboard.server import start_dashboard
+        progress.reset(args.error or "Manual run")
+        start_dashboard(args.dashboard_port)
+
+    graph = build_phoenix_graph(enable_dashboard=args.dashboard)
     result = graph.invoke(initial_state)
+
+    if args.dashboard:
+        import time as _t
+        from src.dashboard.progress import progress
+        status = result.get("status", "unknown")
+        success = status == "success" or (result.get("pr_url") and status not in ("aborted", "failed"))
+        progress.set_overall_done(success)
+        if result.get("pr_url"):
+            progress.set_pr_url(result["pr_url"])
+        _t.sleep(2)  # Let UI poll and show success + PR link before process exits
 
     print("\n--- Phoenix Agent Result ---")
     status = result.get("status", "unknown")

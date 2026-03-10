@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phoenix Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --success: #3fb950;
+      --fail: #f85149;
+      --pending: #6e7681;
+      --running: #58a6ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Outfit', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+    .container {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 2rem;
+    }
+    .logo {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: -0.02em;
+    }
+    .subtitle {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+    }
+    .bug-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .bug-card h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+    .bug-card .summary {
+      font-size: 1.125rem;
+      font-weight: 500;
+      margin-bottom: 0.5rem;
+      word-break: break-word;
+    }
+    .bug-card .meta {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+    }
+    .bug-card a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .bug-card a:hover { text-decoration: underline; }
+    .pipeline {
+      margin-bottom: 2rem;
+    }
+    .pipeline h2 {
+      margin: 0 0 1rem;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+    .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+      padding: 0.75rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .step:last-child { border-bottom: none; }
+    .step-icon {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.875rem;
+    }
+    .step-icon.pending {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+    }
+    .step-icon.running {
+      background: rgba(88,166,255,0.15);
+      border: 1px solid var(--running);
+      color: var(--running);
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    .step-icon.done {
+      background: rgba(63,185,80,0.15);
+      border: 1px solid var(--success);
+      color: var(--success);
+    }
+    .step-icon.failed {
+      background: rgba(248,81,73,0.15);
+      border: 1px solid var(--fail);
+      color: var(--fail);
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+    .step-body { flex: 1; min-width: 0; }
+    .step-label { font-weight: 500; margin-bottom: 0.25rem; }
+    .step-msg {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .step-duration { color: var(--text-muted); font-size: 0.8125rem; margin-top: 0.25rem; }
+    .result {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem 1.5rem;
+      text-align: center;
+    }
+    .result.done { border-color: var(--success); }
+    .result.failed { border-color: var(--fail); }
+    .result.hidden { display: none; }
+    .result h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1rem;
+      font-weight: 600;
+    }
+    .result.done h2 { color: var(--success); }
+    .result.failed h2 { color: var(--fail); }
+    .pr-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.625rem 1.25rem;
+      background: var(--success);
+      color: #fff !important;
+      border-radius: 6px;
+      font-weight: 600;
+      text-decoration: none;
+      margin-top: 0.5rem;
+      transition: opacity 0.2s;
+    }
+    .pr-link:hover { opacity: 0.9; text-decoration: none; }
+    .last-log {
+      margin-top: 1rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+      text-align: left;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <div class="logo">Phoenix</div>
+        <div class="subtitle">Self-healing agent</div>
+      </div>
+    </header>
+    <div class="bug-card" id="bug-card">
+      <h2>Sentry Bug</h2>
+      <div class="summary" id="bug-summary">—</div>
+      <div class="meta" id="bug-meta"></div>
+    </div>
+    <div class="pipeline">
+      <h2>Pipeline</h2>
+      <div id="steps"></div>
+    </div>
+    <div class="result hidden" id="result">
+      <h2 id="result-title">—</h2>
+      <a class="pr-link" id="pr-link" href="#" target="_blank" rel="noopener" style="display:none;">Open PR ↗</a>
+      <div class="last-log" id="result-log"></div>
+    </div>
+  </div>
+  <script>
+    let lastGoodData = null;
+    const stepLabels = {
+      fetch: 'Fetch bug from Sentry',
+      clone: 'Clone repo & create fix branch',
+      fix: 'AI fix + apply edits',
+      validate: 'ng build & lint',
+      pr: 'Create PR'
+    };
+    function render(data) {
+      if (!data) return;
+      lastGoodData = data;
+      const steps = data.steps || [];
+      document.getElementById('bug-summary').textContent = data.bug_summary || '—';
+      const details = data.bug_details || {};
+      const meta = [details.error, details.culprit, details.file].filter(Boolean).join(' • ');
+      document.getElementById('bug-meta').textContent = meta || '';
+      if (details.link) {
+        const el = document.getElementById('bug-meta');
+        el.innerHTML = (meta || '') + ' <a href="' + details.link + '" target="_blank" rel="noopener">View in Sentry →</a>';
+      }
+      let html = '';
+      steps.forEach(s => {
+        const iconClass = s.status || 'pending';
+        let icon = '○';
+        if (iconClass === 'running') icon = '⋯';
+        else if (iconClass === 'done') icon = '✓';
+        else if (iconClass === 'failed') icon = '✕';
+        const label = stepLabels[s.name] || s.label || s.name;
+        let msg = (s.message || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        let dur = '';
+        if (s.duration_sec != null) dur = s.duration_sec.toFixed(1) + 's';
+        else if (s.elapsed_sec != null && iconClass === 'running') dur = s.elapsed_sec.toFixed(1) + 's (running)';
+        html += `<div class="step">
+          <div class="step-icon ${iconClass}">${icon}</div>
+          <div class="step-body">
+            <div class="step-label">${label}</div>
+            ${msg ? '<div class="step-msg">' + msg + '</div>' : ''}
+            ${dur ? '<div class="step-duration">' + dur + '</div>' : ''}
+          </div>
+        </div>`;
+      });
+      document.getElementById('steps').innerHTML = html || '<div class="step"><div class="step-icon pending">○</div><div class="step-body"><div class="step-label">Loading…</div></div></div>';
+      const result = document.getElementById('result');
+      const status = data.overall_status;
+      if (status === 'done' || status === 'failed') {
+        result.classList.remove('hidden');
+        result.classList.toggle('done', status === 'done');
+        result.classList.toggle('failed', status === 'failed');
+        document.getElementById('result-title').textContent = status === 'done' ? '✅ Success' : '❌ Failed';
+        const prUrl = (data.pr_url || '').trim();
+        const prLink = document.getElementById('pr-link');
+        if (prUrl) {
+          prLink.href = prUrl;
+          prLink.style.display = 'inline-flex';
+        } else prLink.style.display = 'none';
+        const logEl = document.getElementById('result-log');
+        logEl.textContent = data.last_log || '';
+        logEl.style.display = data.last_log ? 'block' : 'none';
+      } else result.classList.add('hidden');
+    }
+    function poll() {
+      fetch('/api/status').then(r => r.json()).then(render).catch(() => {
+        if (lastGoodData) render(lastGoodData);
+      });
+    }
+    poll();
+    setInterval(poll, 500);
+  </script>
+</body>
+</html>
