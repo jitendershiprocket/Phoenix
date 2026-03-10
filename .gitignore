@@ -1,0 +1,10 @@
+# Project Phoenix
+.env
+venv/
+workspace/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Demo app (POC only)
+demo-repo/
